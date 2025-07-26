@@ -4,15 +4,31 @@ import SafeIcon from '../common/SafeIcon';
 import { useRates } from '../context/RateContext';
 import * as FiIcons from 'react-icons/fi';
 
-const { FiCalculator, FiDollarSign, FiMapPin, FiUsers, FiCopy, FiCheck } = FiIcons;
+const { FiCalculator, FiDollarSign, FiMapPin, FiUsers, FiCopy, FiCheck, FiClock, FiPlus, FiAlertCircle } = FiIcons;
 
 const RateCalculator = () => {
-  const { calculateRate } = useRates();
+  const { calculateRate, rates, theme } = useRates();
   const [formData, setFormData] = useState({
+    tripType: 'oneway',
     serviceType: 'ambulatory',
+    rateType: 'regular',
     miles: '',
-    deadheadMiles: ''
+    deadheadMiles: '',
+    deadheadMultiplier: 1,
+    markup: { type: 'none', value: 0 }
   });
+
+  const [addOns, setAddOns] = useState({
+    rampFee: false,
+    waitTime: 0,
+    secondDriver: false,
+    companionFee: 0,
+    escort: 0,
+    airportMeetGreet: '',
+    stopOverFee: 0,
+    multipleDestinations: 0
+  });
+
   const [result, setResult] = useState(null);
   const [copied, setCopied] = useState(false);
 
@@ -24,118 +40,466 @@ const RateCalculator = () => {
     }));
   };
 
+  const handleMarkupChange = (field, value) => {
+    setFormData(prev => ({
+      ...prev,
+      markup: {
+        ...prev.markup,
+        [field]: value
+      }
+    }));
+  };
+
+  const handleAddOnChange = (name, value) => {
+    setAddOns(prev => ({
+      ...prev,
+      [name]: value
+    }));
+  };
+
   const handleCalculate = (e) => {
     e.preventDefault();
     const miles = parseFloat(formData.miles) || 0;
     const deadheadMiles = parseFloat(formData.deadheadMiles) || 0;
     
-    const calculation = calculateRate(formData.serviceType, miles, deadheadMiles);
+    const calculation = calculateRate({
+      ...formData,
+      miles,
+      deadheadMiles,
+      addOns,
+      deadheadMultiplier: parseInt(formData.deadheadMultiplier)
+    });
     setResult(calculation);
   };
 
-  const handleCopyResult = () => {
-    if (result) {
-      const text = `Rainbow Road Transport - Rate Calculation
-Service Type: ${formData.serviceType.charAt(0).toUpperCase() + formData.serviceType.slice(1)}
-Miles: ${formData.miles}
-Deadhead Miles: ${formData.deadheadMiles}
-Base Fare: $${result.baseFare.toFixed(2)}
-Mileage Cost: $${result.mileageCost.toFixed(2)}
-Deadhead Cost: $${result.deadheadCost.toFixed(2)}
-Total: $${result.total.toFixed(2)}`;
+  const getCurrentRates = () => {
+    const { serviceType, rateType, tripType } = formData;
+    
+    if (rateType === 'regular+offHours') {
+      const regularBase = rates.baseFares.regular[serviceType];
+      const offHoursBase = rates.baseFares.offHours[serviceType];
+      const regularMileage = rates.mileageRates.regular[serviceType];
+      const offHoursMileage = rates.mileageRates.offHours[serviceType];
       
-      navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      return {
+        baseFare: (regularBase + offHoursBase) * (tripType === 'roundtrip' ? 2 : 1),
+        mileageRate: regularMileage + offHoursMileage
+      };
+    }
+    
+    return {
+      baseFare: rates.baseFares[rateType][serviceType] * (tripType === 'roundtrip' ? 2 : 1),
+      mileageRate: rates.mileageRates[rateType][serviceType]
+    };
+  };
+
+  const currentRates = getCurrentRates();
+
+  const formatBreakdown = (result) => {
+    if (!result) return '';
+    
+    let breakdown = `($${result.baseFare.toFixed(2)} + $${result.mileageCost.toFixed(2)})`;
+    
+    if (result.deadheadCost > 0) {
+      breakdown += ` + $${result.deadheadCost.toFixed(2)} DH`;
+    }
+    
+    Object.entries(result.addOnCosts).forEach(([key, value]) => {
+      const labels = {
+        rampFee: 'Ramp',
+        waitTime: 'Wait Time',
+        secondDriver: '2nd Driver',
+        companionFee: 'Companion',
+        escort: 'Escort',
+        airportMeetGreet: 'Meet & Greet',
+        stopOverFee: 'Stop Over',
+        multipleDestinations: 'Multi Dest'
+      };
+      breakdown += ` + $${value.toFixed(2)} ${labels[key]}`;
+    });
+
+    if (result.markupAmount > 0) {
+      breakdown += ` + $${result.markupAmount.toFixed(2)} Markup`;
+    }
+    
+    return breakdown;
+  };
+
+  const getTripTypeColor = (type) => {
+    if (type === 'oneway') return 'from-yellow-500 to-orange-500';
+    return 'from-green-500 to-green-600';
+  };
+
+  const getRateTypeColor = (type) => {
+    switch (type) {
+      case 'regular': 
+        return 'from-green-500 to-green-600';
+      case 'offHours': 
+        return 'from-yellow-500 to-orange-500';
+      case 'holiday': 
+        return 'from-red-500 to-red-600';
+      case 'regular+offHours': 
+        return 'from-sky-500 to-sky-600';
+      default:
+        return 'from-blue-500 to-blue-600';
     }
   };
 
   const serviceTypes = [
-    { value: 'ambulatory', label: 'Ambulatory', icon: FiUsers },
-    { value: 'wheelchair', label: 'Wheelchair', icon: FiUsers },
-    { value: 'stretcher', label: 'Stretcher', icon: FiUsers }
+    { value: 'ambulatory', label: 'Ambulatory' },
+    { value: 'wheelchair', label: 'Wheelchair' },
+    { value: 'stretcher', label: 'Stretcher' }
   ];
 
+  const rateTypes = [
+    { value: 'regular', label: 'Regular Rate' },
+    { value: 'offHours', label: 'Off Hours/Weekend Rate' },
+    { value: 'holiday', label: 'Holiday Rate' },
+    { value: 'regular+offHours', label: 'Regular + Off Hours' }
+  ];
+
+  const tripTypes = [
+    { value: 'oneway', label: 'One Way' },
+    { value: 'roundtrip', label: 'Roundtrip' }
+  ];
+
+  const deadheadMultipliers = [
+    { value: 1, label: 'Normal' },
+    { value: 2, label: 'Double (2x)' },
+    { value: 4, label: '4x Deadhead' }
+  ];
+
+  const minimumFare = result?.minimumFare || 0;
+  const calculatedBeforeMinimum = result && (result.baseFare + result.mileageCost + result.deadheadCost + result.totalAddOnCost) < minimumFare;
+
   return (
-    <div className="max-w-4xl mx-auto space-y-8">
+    <div className="max-w-6xl mx-auto space-y-8">
       <motion.div
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         className="text-center"
       >
-        <h1 className="text-4xl font-bold text-gray-800 mb-4">Rate Calculator</h1>
-        <p className="text-xl text-gray-600">Calculate transport costs for any service type</p>
+        <h1 className="text-4xl font-bold text-gray-800 dark:text-white mb-4">Rate Calculator</h1>
+        <p className="text-xl text-gray-600 dark:text-gray-300">Calculate transport costs with comprehensive options</p>
       </motion.div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      {/* Current Rates Display */}
+      <motion.div
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="bg-blue-50 border border-blue-200 rounded-xl p-4 dark:bg-blue-900/30 dark:border-blue-800"
+      >
+        <h3 className="font-semibold text-blue-800 dark:text-blue-300 mb-2">
+          Current Rates for {tripTypes.find(t => t.value === formData.tripType)?.label} - {serviceTypes.find(s => s.value === formData.serviceType)?.label} - {rateTypes.find(r => r.value === formData.rateType)?.label}
+        </h3>
+        <div className="flex flex-wrap space-x-6 text-sm text-blue-700 dark:text-blue-300">
+          <span>Base Fare: ${currentRates.baseFare.toFixed(2)}</span>
+          <span>Mileage Rate: ${currentRates.mileageRate.toFixed(2)}/mile</span>
+          <span>Deadhead Rate: ${rates.deadheadRate.toFixed(2)}/mile</span>
+          {formData.tripType === 'oneway' && (
+            <span>One Way Fee: ${rates.oneWayRates[formData.serviceType].toFixed(2)}</span>
+          )}
+        </div>
+      </motion.div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Main Form */}
         <motion.div
           initial={{ opacity: 0, x: -20 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ delay: 0.1 }}
-          className="bg-white rounded-xl shadow-lg p-8"
+          className="lg:col-span-2 bg-white dark:bg-gray-800 rounded-xl shadow-lg p-8"
         >
           <div className="flex items-center space-x-3 mb-6">
             <div className="bg-gradient-to-r from-blue-500 to-blue-600 p-3 rounded-lg">
               <SafeIcon icon={FiCalculator} className="text-white text-xl" />
             </div>
-            <h2 className="text-2xl font-bold text-gray-800">Calculate Rate</h2>
+            <h2 className="text-2xl font-bold text-gray-800 dark:text-white">Calculate Rate</h2>
           </div>
 
           <form onSubmit={handleCalculate} className="space-y-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Service Type
-              </label>
-              <select
-                name="serviceType"
-                value={formData.serviceType}
-                onChange={handleInputChange}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
-              >
-                {serviceTypes.map((type) => (
-                  <option key={type.value} value={type.value}>
-                    {type.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {/* Basic Settings */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">
+                  Trip Type
+                </label>
+                <div className="relative">
+                  {formData.tripType && (
+                    <div className={`absolute inset-0 bg-gradient-to-r ${getTripTypeColor(formData.tripType)} opacity-10 rounded-lg pointer-events-none`}></div>
+                  )}
+                  <select
+                    name="tripType"
+                    value={formData.tripType}
+                    onChange={handleInputChange}
+                    className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 dark:text-white"
+                  >
+                    {tripTypes.map((type) => (
+                      <option key={type.value} value={type.value}>
+                        {type.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Miles
-              </label>
-              <div className="relative">
-                <SafeIcon icon={FiMapPin} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-                <input
-                  type="number"
-                  name="miles"
-                  value={formData.miles}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">
+                  Service Type
+                </label>
+                <select
+                  name="serviceType"
+                  value={formData.serviceType}
                   onChange={handleInputChange}
-                  step="0.1"
-                  min="0"
-                  placeholder="Enter miles"
-                  className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
-                  required
-                />
+                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 dark:text-white"
+                >
+                  {serviceTypes.map((type) => (
+                    <option key={type.value} value={type.value}>
+                      {type.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">
+                  Rate Type
+                </label>
+                <div className="relative">
+                  {formData.rateType && (
+                    <div className={`absolute inset-0 bg-gradient-to-r ${getRateTypeColor(formData.rateType)} opacity-10 rounded-lg pointer-events-none`}></div>
+                  )}
+                  <select
+                    name="rateType"
+                    value={formData.rateType}
+                    onChange={handleInputChange}
+                    className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 dark:text-white"
+                  >
+                    {rateTypes.map((type) => (
+                      <option key={type.value} value={type.value}>
+                        {type.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Deadhead Miles (Optional)
-              </label>
-              <div className="relative">
-                <SafeIcon icon={FiMapPin} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-                <input
-                  type="number"
-                  name="deadheadMiles"
-                  value={formData.deadheadMiles}
+            {/* Miles and Deadhead */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">
+                  Miles
+                </label>
+                <div className="relative">
+                  <SafeIcon icon={FiMapPin} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                  <input
+                    type="number"
+                    name="miles"
+                    value={formData.miles}
+                    onChange={handleInputChange}
+                    step="0.1"
+                    min="0"
+                    placeholder="Enter miles"
+                    className="w-full pl-10 pr-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 dark:text-white"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">
+                  Deadhead Miles
+                </label>
+                <div className="relative">
+                  <SafeIcon icon={FiMapPin} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                  <input
+                    type="number"
+                    name="deadheadMiles"
+                    value={formData.deadheadMiles}
+                    onChange={handleInputChange}
+                    step="0.1"
+                    min="0"
+                    placeholder="Enter deadhead miles"
+                    className="w-full pl-10 pr-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 dark:text-white"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">
+                  Deadhead Multiplier
+                </label>
+                <select
+                  name="deadheadMultiplier"
+                  value={formData.deadheadMultiplier}
                   onChange={handleInputChange}
-                  step="0.1"
-                  min="0"
-                  placeholder="Enter deadhead miles"
-                  className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
-                />
+                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 dark:text-white"
+                >
+                  {deadheadMultipliers.map((mult) => (
+                    <option key={mult.value} value={mult.value}>
+                      {mult.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Markup */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">
+                  Markup Type
+                </label>
+                <select
+                  value={formData.markup.type}
+                  onChange={(e) => handleMarkupChange('type', e.target.value)}
+                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 dark:text-white"
+                >
+                  <option value="none">No Markup</option>
+                  <option value="dollar">$ Markup</option>
+                  <option value="percent">% Markup</option>
+                </select>
+              </div>
+
+              {formData.markup.type !== 'none' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">
+                    Markup Value
+                  </label>
+                  <input
+                    type="number"
+                    value={formData.markup.value}
+                    onChange={(e) => handleMarkupChange('value', parseFloat(e.target.value) || 0)}
+                    step="0.01"
+                    min="0"
+                    placeholder={formData.markup.type === 'percent' ? 'Enter percentage' : 'Enter amount'}
+                    className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 dark:text-white"
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Add-on Services */}
+            <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
+              <h3 className="text-lg font-semibold text-gray-800 dark:text-white mb-4">Add-on Services</h3>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <label className="flex items-center space-x-3">
+                  <input
+                    type="checkbox"
+                    checked={addOns.rampFee}
+                    onChange={(e) => handleAddOnChange('rampFee', e.target.checked)}
+                    className="rounded border-gray-300 dark:border-gray-600 dark:bg-gray-700"
+                  />
+                  <span className="dark:text-white">Ramp Fee ($10)</span>
+                </label>
+
+                <label className="flex items-center space-x-3">
+                  <input
+                    type="checkbox"
+                    checked={addOns.secondDriver}
+                    onChange={(e) => handleAddOnChange('secondDriver', e.target.checked)}
+                    className="rounded border-gray-300 dark:border-gray-600 dark:bg-gray-700"
+                  />
+                  <span className="dark:text-white">2nd Driver ($50)</span>
+                </label>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">
+                    Wait Time (minutes)
+                  </label>
+                  <input
+                    type="number"
+                    value={addOns.waitTime}
+                    onChange={(e) => handleAddOnChange('waitTime', parseInt(e.target.value) || 0)}
+                    min="0"
+                    step="30"
+                    placeholder="0"
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 dark:text-white"
+                  />
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">$70/hr, increments of 30 mins</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">
+                    Companion Fee (count)
+                  </label>
+                  <input
+                    type="number"
+                    value={addOns.companionFee}
+                    onChange={(e) => handleAddOnChange('companionFee', parseInt(e.target.value) || 0)}
+                    min="0"
+                    placeholder="0"
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 dark:text-white"
+                  />
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">$25/way per companion</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">
+                    Escort (hours)
+                  </label>
+                  <input
+                    type="number"
+                    value={addOns.escort}
+                    onChange={(e) => handleAddOnChange('escort', parseFloat(e.target.value) || 0)}
+                    min="0"
+                    step="0.5"
+                    placeholder="0"
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 dark:text-white"
+                  />
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">$50/hr</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">
+                    Stop Over Fee (count)
+                  </label>
+                  <input
+                    type="number"
+                    value={addOns.stopOverFee}
+                    onChange={(e) => handleAddOnChange('stopOverFee', parseInt(e.target.value) || 0)}
+                    min="0"
+                    placeholder="0"
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 dark:text-white"
+                  />
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">$25 per stop</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">
+                    Multiple Destinations (legs)
+                  </label>
+                  <input
+                    type="number"
+                    value={addOns.multipleDestinations}
+                    onChange={(e) => handleAddOnChange('multipleDestinations', parseInt(e.target.value) || 0)}
+                    min="0"
+                    placeholder="0"
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 dark:text-white"
+                  />
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">$35 per leg</p>
+                </div>
+              </div>
+
+              <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                <h4 className="text-md font-medium text-gray-700 dark:text-gray-200 mb-2">
+                  Airport Meet & Greet
+                </h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <select
+                      value={addOns.airportMeetGreet}
+                      onChange={(e) => handleAddOnChange('airportMeetGreet', e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 dark:text-white"
+                    >
+                      <option value="">None</option>
+                      <option value="ORD">ORD ($50)</option>
+                      <option value="MDW">MDW ($70)</option>
+                    </select>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -150,30 +514,20 @@ Total: $${result.total.toFixed(2)}`;
           </form>
         </motion.div>
 
+        {/* Results Panel */}
         <motion.div
           initial={{ opacity: 0, x: 20 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ delay: 0.2 }}
-          className="bg-white rounded-xl shadow-lg p-8"
+          className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-8"
         >
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center space-x-3">
               <div className="bg-gradient-to-r from-green-500 to-green-600 p-3 rounded-lg">
                 <SafeIcon icon={FiDollarSign} className="text-white text-xl" />
               </div>
-              <h2 className="text-2xl font-bold text-gray-800">Rate Breakdown</h2>
+              <h2 className="text-2xl font-bold text-gray-800 dark:text-white">Rate Breakdown</h2>
             </div>
-            {result && (
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={handleCopyResult}
-                className="flex items-center space-x-2 px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors duration-200"
-              >
-                <SafeIcon icon={copied ? FiCheck : FiCopy} className={`text-sm ${copied ? 'text-green-600' : 'text-gray-600'}`} />
-                <span className="text-sm font-medium">{copied ? 'Copied!' : 'Copy'}</span>
-              </motion.button>
-            )}
           </div>
 
           {result ? (
@@ -182,47 +536,75 @@ Total: $${result.total.toFixed(2)}`;
               animate={{ opacity: 1, y: 0 }}
               className="space-y-4"
             >
-              <div className="bg-gray-50 rounded-lg p-4">
-                <h3 className="font-semibold text-gray-800 mb-3">Service Details</h3>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Service Type:</span>
-                    <span className="font-medium capitalize">{formData.serviceType}</span>
+              <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
+                <h4 className="font-semibold text-gray-800 dark:text-gray-200 mb-2">Rate Breakdown</h4>
+                <p className="text-sm text-gray-700 dark:text-gray-300 font-mono">
+                  {formatBreakdown(result)}
+                </p>
+              </div>
+
+              {calculatedBeforeMinimum && (
+                <div className="bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3 flex items-center space-x-2">
+                  <SafeIcon icon={FiAlertCircle} className="text-yellow-600 dark:text-yellow-400 text-lg flex-shrink-0" />
+                  <p className="text-sm text-yellow-800 dark:text-yellow-300">
+                    Minimum fare of ${minimumFare.toFixed(2)} applied
+                  </p>
+                </div>
+              )}
+
+              <div className="space-y-3">
+                <div className="flex justify-between items-center py-2 border-b border-gray-200 dark:border-gray-700">
+                  <span className="text-gray-600 dark:text-gray-300">Base Fare:</span>
+                  <span className="font-semibold text-lg dark:text-white">${result.baseFare.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between items-center py-2 border-b border-gray-200 dark:border-gray-700">
+                  <span className="text-gray-600 dark:text-gray-300">Mileage Cost:</span>
+                  <span className="font-semibold text-lg dark:text-white">${result.mileageCost.toFixed(2)}</span>
+                </div>
+                {result.deadheadCost > 0 && (
+                  <div className="flex justify-between items-center py-2 border-b border-gray-200 dark:border-gray-700">
+                    <span className="text-gray-600 dark:text-gray-300">Deadhead Cost:</span>
+                    <span className="font-semibold text-lg dark:text-white">${result.deadheadCost.toFixed(2)}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Miles:</span>
-                    <span className="font-medium">{formData.miles}</span>
+                )}
+                {result.totalAddOnCost > 0 && (
+                  <div className="flex justify-between items-center py-2 border-b border-gray-200 dark:border-gray-700">
+                    <span className="text-gray-600 dark:text-gray-300">Add-ons:</span>
+                    <span className="font-semibold text-lg dark:text-white">${result.totalAddOnCost.toFixed(2)}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Deadhead Miles:</span>
-                    <span className="font-medium">{formData.deadheadMiles || '0'}</span>
+                )}
+                {result.markupAmount > 0 && (
+                  <div className="flex justify-between items-center py-2 border-b border-gray-200 dark:border-gray-700">
+                    <span className="text-gray-600 dark:text-gray-300">Markup:</span>
+                    <span className="font-semibold text-lg dark:text-white">${result.markupAmount.toFixed(2)}</span>
                   </div>
+                )}
+                <div className="flex justify-between items-center py-3 bg-gradient-to-r from-green-50 to-green-100 dark:from-green-900/30 dark:to-green-800/30 rounded-lg px-4">
+                  <span className="text-green-800 dark:text-green-300 font-semibold text-lg">Total:</span>
+                  <span className="text-green-800 dark:text-green-300 font-bold text-2xl">${result.total.toFixed(2)}</span>
                 </div>
               </div>
 
-              <div className="space-y-3">
-                <div className="flex justify-between items-center py-2 border-b border-gray-200">
-                  <span className="text-gray-600">Base Fare:</span>
-                  <span className="font-semibold text-lg">${result.baseFare.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between items-center py-2 border-b border-gray-200">
-                  <span className="text-gray-600">Mileage Cost:</span>
-                  <span className="font-semibold text-lg">${result.mileageCost.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between items-center py-2 border-b border-gray-200">
-                  <span className="text-gray-600">Deadhead Cost:</span>
-                  <span className="font-semibold text-lg">${result.deadheadCost.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between items-center py-3 bg-gradient-to-r from-green-50 to-green-100 rounded-lg px-4">
-                  <span className="text-green-800 font-semibold text-lg">Total:</span>
-                  <span className="text-green-800 font-bold text-2xl">${result.total.toFixed(2)}</span>
+              <div className="bg-blue-50 dark:bg-blue-900/30 rounded-lg p-4 text-sm">
+                <h4 className="font-semibold text-blue-800 dark:text-blue-300 mb-2">Mileage Summary</h4>
+                <div className="space-y-1 text-blue-700 dark:text-blue-300">
+                  <div className="flex justify-between">
+                    <span>Total Mileage:</span>
+                    <span>{result.breakdown.displayMiles} Miles</span>
+                  </div>
+                  {result.breakdown.deadheadMiles > 0 && (
+                    <div className="flex justify-between">
+                      <span>Deadhead Mileage:</span>
+                      <span>{result.breakdown.deadheadMiles} Miles</span>
+                    </div>
+                  )}
                 </div>
               </div>
             </motion.div>
           ) : (
             <div className="text-center py-12">
-              <SafeIcon icon={FiCalculator} className="text-gray-300 text-6xl mx-auto mb-4" />
-              <p className="text-gray-500 text-lg">Enter details and calculate to see rate breakdown</p>
+              <SafeIcon icon={FiCalculator} className="text-gray-300 dark:text-gray-600 text-6xl mx-auto mb-4" />
+              <p className="text-gray-500 dark:text-gray-400 text-lg">Enter details and calculate to see rate breakdown</p>
             </div>
           )}
         </motion.div>

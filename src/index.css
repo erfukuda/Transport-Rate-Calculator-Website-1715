@@ -18,3 +18,61 @@ body {
   width: 100%;
   height: 100%;
 }
+
+/* Dark mode variables */
+:root {
+  --background-light: #f9fafb;
+  --text-light: #111827;
+  --background-dark: #111827;
+  --text-dark: #f9fafb;
+  --background-darkblue: #0f172a;
+  --text-darkblue: #f8fafc;
+}
+
+/* Theme specific styles */
+[data-theme='light'] {
+  --background: var(--background-light);
+  --text: var(--text-light);
+}
+
+[data-theme='dark'] {
+  --background: var(--background-dark);
+  --text: var(--text-dark);
+}
+
+[data-theme='darkblue'] {
+  --background: var(--background-darkblue);
+  --text: var(--text-darkblue);
+}
+
+/* Apply theme colors */
+.dark {
+  @apply bg-gray-900 text-white;
+}
+
+.darkblue {
+  @apply bg-blue-950 text-white;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-gray-100 dark:bg-gray-800;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-gray-400 dark:bg-gray-600 rounded;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-gray-500 dark:bg-gray-500;
+}
+
+/* Smooth transitions */
+* {
+  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.2s ease;
+}
