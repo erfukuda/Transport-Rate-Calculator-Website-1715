@@ -51,21 +51,21 @@ const defaultRates = {
     stretcher: 40.00
   },
   minimumFares: {
-    ambulatoryRegularOneWay: 75,
+    ambulatoryRegularOneway: 75,
     ambulatoryRegularRoundtrip: 90,
-    ambulatoryOffHoursOneWay: 90,
+    ambulatoryOffHoursOneway: 90,
     ambulatoryOffHoursRoundtrip: 115,
-    ambulatoryHolidayOneWay: 105,
+    ambulatoryHolidayOneway: 105,
     ambulatoryHolidayRoundtrip: 140,
-    wheelchairRegularOneWay: 75,
+    wheelchairRegularOneway: 75,
     wheelchairRegularRoundtrip: 90,
-    wheelchairOffHoursOneWay: 90,
+    wheelchairOffHoursOneway: 90,
     wheelchairOffHoursRoundtrip: 115,
-    wheelchairHolidayOneWay: 105,
+    wheelchairHolidayOneway: 105,
     wheelchairHolidayRoundtrip: 140,
-    stretcherRegularOneWay: 350,
+    stretcherRegularOneway: 350,
     stretcherRegularRoundtrip: 650,
-    stretcherHolidayOneWay: 410,
+    stretcherHolidayOneway: 410,
     stretcherHolidayRoundtrip: 760
   },
   deadheadRate: 1.50,
@@ -93,11 +93,19 @@ export const RateProvider = ({ children }) => {
       }
     }
 
-    // Load theme preference
     const savedTheme = localStorage.getItem('rainbowRoadTheme');
     if (savedTheme) {
       setTheme(savedTheme);
       document.documentElement.setAttribute('data-theme', savedTheme);
+      if (savedTheme === 'darkblue') {
+        document.documentElement.classList.add('darkblue');
+        document.documentElement.classList.remove('dark');
+      } else if (savedTheme === 'dark') {
+        document.documentElement.classList.add('dark');
+        document.documentElement.classList.remove('darkblue');
+      } else {
+        document.documentElement.classList.remove('dark', 'darkblue');
+      }
     }
   }, []);
 
@@ -110,6 +118,16 @@ export const RateProvider = ({ children }) => {
     setTheme(newTheme);
     localStorage.setItem('rainbowRoadTheme', newTheme);
     document.documentElement.setAttribute('data-theme', newTheme);
+    
+    if (newTheme === 'darkblue') {
+      document.documentElement.classList.add('darkblue');
+      document.documentElement.classList.remove('dark');
+    } else if (newTheme === 'dark') {
+      document.documentElement.classList.add('dark');
+      document.documentElement.classList.remove('darkblue');
+    } else {
+      document.documentElement.classList.remove('dark', 'darkblue');
+    }
   };
 
   const roundMileage = (miles) => {
@@ -180,11 +198,14 @@ export const RateProvider = ({ children }) => {
     // For roundtrip, we don't multiply miles by 2 for display, but we do for cost calculation
     const displayMiles = processedMiles;
     const calculationMiles = processedMiles * (tripType === 'roundtrip' ? 2 : 1);
-    const mileageCost = calculationMiles * mileageRate;
+    let mileageCost = calculationMiles * mileageRate;
+    
+    // Round mileage cost to nearest $5
+    mileageCost = Math.ceil(mileageCost / 5) * 5;
 
-    // Calculate deadhead cost
+    // Calculate deadhead cost - multiply by 2 for roundtrip
     let processedDeadheadMiles = Math.max(0, deadheadMiles - rates.settings.deadheadFreeMiles);
-    processedDeadheadMiles = processedDeadheadMiles * deadheadMultiplier;
+    processedDeadheadMiles = processedDeadheadMiles * deadheadMultiplier * (tripType === 'roundtrip' ? 2 : 1);
     let deadheadCost = processedDeadheadMiles * rates.deadheadRate;
     deadheadCost = roundDeadhead(deadheadCost);
 
@@ -198,10 +219,9 @@ export const RateProvider = ({ children }) => {
     }
 
     if (addOns.waitTime > 0) {
-      // If less than 30 minutes, divide by 2
       let waitHours;
       if (addOns.waitTime < 30) {
-        waitHours = 0.5 / 2; // Half of a 30-minute increment
+        waitHours = 0.5 / 2;
       } else {
         waitHours = Math.ceil(addOns.waitTime / 30) * 0.5;
       }
@@ -242,7 +262,8 @@ export const RateProvider = ({ children }) => {
     }
 
     // Calculate subtotal before markup
-    let subtotal = totalBaseFare + mileageCost + deadheadCost + totalAddOnCost;
+    const basePlusMileage = totalBaseFare + mileageCost;
+    let subtotal = basePlusMileage + deadheadCost + totalAddOnCost;
 
     // Check minimum fare
     const minimumFare = getMinimumFare(serviceType, rateType, tripType);
@@ -265,6 +286,7 @@ export const RateProvider = ({ children }) => {
     return {
       baseFare: totalBaseFare,
       mileageCost,
+      basePlusMileage,
       deadheadCost,
       addOnCosts,
       totalAddOnCost,
